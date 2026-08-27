@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>cc_training_materials</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-block">
+      <h1>cc_training_materials</h1>
+      <span>YOLO 数据工作台</span>
+    </div>
+    <div class="topbar-center">
+      <span id="datasetBadge" class="status-badge neutral">未选择数据集</span>
+      <span id="dependencyBadge" class="status-badge neutral">检查运行环境</span>
+    </div>
+    <div class="topbar-actions">
+      <button id="openDatasetButton" class="button primary" type="button">选择数据集根目录</button>
+      <button id="newProjectButton" class="button" type="button">新建项目</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="left-panel panel">
+      <section class="dataset-section">
+        <div class="section-heading">
+          <h2>数据集</h2>
+          <div class="section-heading-actions">
+            <button id="exportDatasetButton" class="icon-text-button" type="button" disabled>
+              <span aria-hidden="true">&#8681;</span> 导出 9:1
+            </button>
+            <button id="addSourceButton" class="icon-text-button" type="button" disabled>
+              <span aria-hidden="true">+</span> 添加图片目录
+            </button>
+            <button id="addVideoButton" class="icon-text-button" type="button" disabled>
+              <span aria-hidden="true">&#9654;</span> 添加视频
+            </button>
+          </div>
+        </div>
+        <div id="datasetPath" class="path-line">尚未选择</div>
+        <div id="sourceList" class="source-list"></div>
+        <div class="stats-strip" aria-label="数据集统计">
+          <div><strong id="totalCount">0</strong><span>图片</span></div>
+          <div><strong id="labeledCount">0</strong><span>已标注</span></div>
+          <div><strong id="pendingCount">0</strong><span>待复核</span></div>
+          <div><strong id="weatherCount">0</strong><span>天气增强</span></div>
+        </div>
+      </section>
+
+      <section class="image-browser">
+        <div class="search-row">
+          <input id="imageSearch" type="search" placeholder="搜索图片名称" autocomplete="off" disabled>
+          <select id="imageSort" aria-label="图片排序" disabled>
+            <option value="name">名称排序</option>
+            <option value="boxes_desc" selected>框数从多到少</option>
+            <option value="boxes_asc">框数从少到多</option>
+            <option value="weather_first">天气增强优先</option>
+          </select>
+        </div>
+        <div id="imageFilters" class="segmented filter-segments" role="tablist" aria-label="图片筛选">
+          <button data-filter="all" type="button">全部</button>
+          <button data-filter="unlabeled" type="button">未标注</button>
+          <button class="active" data-filter="pending" type="button">待复核</button>
+          <button data-filter="reviewed" type="button">已复核</button>
+          <button data-filter="weather" type="button">天气增强</button>
+        </div>
+        <div id="imageList" class="image-list" role="listbox" aria-label="图片列表">
+          <div class="list-empty">没有图片</div>
+        </div>
+        <button id="loadMoreButton" class="load-more" type="button" hidden>加载更多</button>
+      </section>
+    </aside>
+
+    <section class="annotation-panel panel">
+      <div class="canvas-toolbar">
+        <div class="navigation-tools">
+          <button id="previousButton" class="icon-button" type="button" title="上一张" aria-label="上一张" disabled>&larr;</button>
+          <button id="nextButton" class="icon-button" type="button" title="下一张" aria-label="下一张" disabled>&rarr;</button>
+        </div>
+        <div class="image-title-wrap">
+          <strong id="currentImageName">未选择图片</strong>
+          <span id="imagePosition">0 / 0</span>
+        </div>
+        <div class="canvas-tools">
+          <div class="segmented compact" aria-label="画布模式">
+            <button id="drawModeButton" class="active" type="button">框选</button>
+            <button id="panModeButton" type="button">平移</button>
+          </div>
+          <button id="zoomOutButton" class="icon-button" type="button" title="缩小" aria-label="缩小" disabled>&minus;</button>
+          <button id="fitButton" class="icon-button fit-button" type="button" title="适应窗口" aria-label="适应窗口" disabled>&#9633;</button>
+          <button id="zoomInButton" class="icon-button" type="button" title="放大" aria-label="放大" disabled>+</button>
+          <button id="deleteImageButton" class="icon-button delete-image-button" type="button" title="移出当前图片" aria-label="移出当前图片" disabled>&times;</button>
+          <button id="saveButton" class="button save-button" type="button" disabled>保存标签</button>
+        </div>
+      </div>
+
+      <div id="canvasStage" class="canvas-stage">
+        <canvas id="annotationCanvas"></canvas>
+        <div id="canvasEmpty" class="canvas-empty">
+          <strong>尚未打开图片</strong>
+          <button id="emptyOpenButton" class="button primary" type="button">选择数据集根目录</button>
+        </div>
+        <div id="loadingOverlay" class="loading-overlay" hidden>
+          <span class="spinner" aria-hidden="true"></span>
+          <span>正在加载</span>
+        </div>
+      </div>
+
+      <div class="canvas-statusbar">
+        <span id="imageDimensions">--</span>
+        <span id="zoomValue">100%</span>
+        <span id="boxCount">0 个框</span>
+        <span id="dirtyState" class="dirty-state">已保存</span>
+      </div>
+    </section>
+
+    <aside class="right-panel panel">
+      <div id="rightTabs" class="segmented right-tabs" role="tablist" aria-label="工具面板">
+        <button class="active" data-tab="classes" type="button">类别</button>
+        <button data-tab="model" type="button">自动标注</button>
+        <button data-tab="training" type="button">训练</button>
+      </div>
+
+      <section id="classesTab" class="tool-tab active">
+        <div class="section-heading">
+          <h2>设置目标类别</h2>
+        </div>
+        <label class="field-label" for="classDefinitions">类别定义</label>
+        <textarea id="classDefinitions" rows="5" spellcheck="false">0:目标</textarea>
+        <button id="saveClassesButton" class="button full-width" type="button" disabled>加载类别配置</button>
+
+        <div class="subsection-heading">
+          <h3>当前绘制类别</h3>
+        </div>
+        <div id="classPicker" class="class-picker"></div>
+
+        <div class="subsection-heading box-heading">
+          <h3>当前图片标注</h3>
+          <button id="clearBoxesButton" class="text-button danger-text" type="button" disabled>清空</button>
+        </div>
+        <div id="boxList" class="box-list">
+          <div class="list-empty compact-empty">没有标注框</div>
+        </div>
+        <label class="toggle-row">
+          <input id="reviewedToggle" type="checkbox" checked disabled>
+          <span>保存时标记为已复核</span>
+        </label>
+        <div class="target-preview-section">
+          <div class="target-preview-heading">
+            <h3>目标放大图</h3>
+            <span id="targetPreviewCount">0 个目标</span>
+          </div>
+          <div id="targetPreviewGrid" class="target-preview-grid">
+            <div class="target-preview-empty">没有目标框</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="modelTab" class="tool-tab">
+        <div class="section-heading"><h2>模型自动标注</h2></div>
+        <label class="field-label" for="modelPath">模型权重</label>
+        <div class="input-action-row">
+          <input id="modelPath" type="text" placeholder="选择 best.pt" autocomplete="off">
+          <button id="browseModelButton" class="icon-button" type="button" title="浏览模型" aria-label="浏览模型">...</button>
+        </div>
+
+        <div class="range-heading">
+          <label class="field-label" for="confidenceRange">置信度</label>
+          <output id="confidenceOutput" for="confidenceRange">0.35</output>
+        </div>
+        <input id="confidenceRange" type="range" min="0.01" max="0.99" step="0.01" value="0.35">
+
+        <label class="field-label" for="predictionDevice">运行设备</label>
+        <select id="predictionDevice">
+          <option value="auto">自动</option>
+          <option value="0">GPU 0</option>
+          <option value="cpu">CPU</option>
+        </select>
+
+        <label class="field-label">筛选类别</label>
+        <div id="predictionClassFilters" class="check-list"></div>
+
+        <button id="predictCurrentButton" class="button full-width" type="button" disabled>预标注当前图片</button>
+
+        <div class="divider"></div>
+        <label class="field-label" for="predictionScope">批量范围</label>
+        <select id="predictionScope">
+          <option value="unlabeled">仅未标注图片</option>
+          <option value="pending">仅待复核图片</option>
+          <option value="all">全部图片</option>
+        </select>
+
+        <label class="field-label" for="overwritePolicy">已有标签</label>
+        <select id="overwritePolicy">
+          <option value="skip_existing">跳过，不覆盖</option>
+          <option value="replace_predictions">仅覆盖模型标注</option>
+          <option value="replace_all">覆盖全部标签</option>
+        </select>
+        <button id="startPredictionButton" class="button primary full-width" type="button" disabled>开始批量自动标注</button>
+      </section>
+
+      <section id="trainingTab" class="tool-tab">
+        <div class="section-heading"><h2>训练 YOLO 模型</h2></div>
+        <label class="field-label" for="trainingModelPath">预训练权重</label>
+        <div class="input-action-row">
+          <input id="trainingModelPath" type="text" placeholder="选择预训练 .pt" autocomplete="off">
+          <button id="browseTrainingModelButton" class="icon-button" type="button" title="浏览权重" aria-label="浏览权重">...</button>
+        </div>
+
+        <label class="field-label" for="trainingScope">训练数据</label>
+        <select id="trainingScope">
+          <option value="incremental_replay">新增已复核 + 历史回放</option>
+          <option value="incremental">仅新增已复核</option>
+          <option value="all_reviewed">全部已复核</option>
+        </select>
+        <div id="trainingDataPlan" class="training-data-plan">正在统计训练图片</div>
+
+        <div class="form-grid two-columns">
+          <label>训练轮数<input id="trainingEpochs" type="number" min="1" max="500" value="15"></label>
+          <label>Batch<input id="trainingBatch" type="number" min="1" max="256" value="16"></label>
+          <label>图片尺寸<input id="trainingImageSize" type="number" min="32" max="2048" step="32" value="640"></label>
+          <label>验证集<input id="validationRatio" type="number" min="5" max="50" step="1" value="20"><span class="input-suffix">%</span></label>
+        </div>
+
+        <label class="field-label">天气增强</label>
+        <div id="weatherOptions" class="weather-options">
+          <label class="check-option"><input type="checkbox" value="sunny" checked><span>晴天</span></label>
+          <label class="check-option"><input type="checkbox" value="strong_sun" checked><span>大太阳</span></label>
+          <label class="check-option"><input type="checkbox" value="cloudy" checked><span>多云</span></label>
+          <label class="check-option"><input type="checkbox" value="overcast" checked><span>乌云</span></label>
+          <label class="check-option"><input type="checkbox" value="fog"><span>雾天</span></label>
+          <label class="check-option"><input type="checkbox" value="rain"><span>雨天</span></label>
+          <label class="check-option"><input type="checkbox" value="snow"><span>雪天</span></label>
+          <label class="check-option"><input type="checkbox" value="night"><span>夜间</span></label>
+        </div>
+        <div class="range-heading">
+          <label class="field-label" for="weatherRatio">新增素材比例</label>
+          <output id="weatherRatioOutput" for="weatherRatio">30%</output>
+        </div>
+        <input id="weatherRatio" type="range" min="0" max="100" step="5" value="30">
+        <div class="weather-review-actions">
+          <button id="generateWeatherReviewButton" class="button" type="button">生成并检测素材</button>
+          <button id="openWeatherReviewButton" class="button" type="button" hidden>查看审核</button>
+        </div>
+        <div id="weatherReviewStatus" class="weather-review-status">尚未生成检测素材</div>
+
+        <label class="field-label" for="trainingDevice">运行设备</label>
+        <select id="trainingDevice">
+          <option value="auto">自动</option>
+          <option value="0">GPU 0</option>
+          <option value="cpu">CPU</option>
+        </select>
+        <button id="startTrainingButton" class="button primary full-width" type="button" disabled>开始训练模型</button>
+        <div id="trainingSummary" class="result-block" hidden></div>
+      </section>
+    </aside>
+  </main>
+
+  <div id="jobBar" class="job-bar" hidden>
+    <div class="job-main">
+      <span id="jobKind" class="job-kind">后台任务</span>
+      <strong id="jobMessage">准备中</strong>
+      <span id="jobCounter"></span>
+    </div>
+    <div id="jobDetails" class="job-details" hidden></div>
+    <div class="job-progress"><span id="jobProgressFill"></span></div>
+    <button id="cancelJobButton" class="button small" type="button">停止</button>
+  </div>
+
+  <dialog id="weatherReviewDialog" class="weather-review-dialog">
+    <div class="dialog-shell">
+      <div class="dialog-header">
+        <div>
+          <h2>天气增强素材审核</h2>
+          <p id="weatherReviewSummary">0 张候选素材</p>
+        </div>
+        <button id="closeWeatherReviewButton" class="icon-button" type="button" aria-label="关闭" title="关闭">&times;</button>
+      </div>
+      <div class="weather-review-toolbar">
+        <button id="approveAllWeatherButton" class="button small" type="button">全部保留</button>
+        <button id="rejectAllWeatherButton" class="button small" type="button">全部排除</button>
+        <div id="weatherReviewFilters" class="segmented weather-review-filters">
+          <button id="showHardWeatherButton" class="active" type="button">困难素材</button>
+          <button id="showAllWeatherButton" type="button">全部素材</button>
+        </div>
+        <span id="weatherReviewSelection">已选择 0 / 0</span>
+      </div>
+      <div class="weather-review-body">
+        <div id="weatherReviewGallery" class="weather-review-gallery"></div>
+        <div class="weather-review-inspector">
+          <div class="weather-compare-pane">
+            <div class="weather-compare-heading">原图</div>
+            <canvas id="weatherOriginalCanvas" width="640" height="400"></canvas>
+          </div>
+          <div class="weather-compare-pane">
+            <div id="weatherEnhancedTitle" class="weather-compare-heading">增强图</div>
+            <canvas id="weatherEnhancedCanvas" width="640" height="400"></canvas>
+          </div>
+          <div id="weatherFocusedName" class="weather-focused-name">请选择天气素材</div>
+          <div id="weatherGapSummary" class="weather-gap-summary"></div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button id="cancelWeatherReviewButton" class="button" type="button">稍后审核</button>
+        <button id="confirmWeatherReviewButton" class="button primary" type="button">确认使用所选素材</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="browserDialog" class="browser-dialog">
+    <form method="dialog" class="dialog-shell">
+      <div class="dialog-header">
+        <div>
+          <h2 id="browserTitle">选择目录</h2>
+          <p id="browserPurpose">本机文件系统</p>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="关闭" title="关闭" type="submit">&times;</button>
+      </div>
+      <div class="browser-path-row">
+        <button id="browserParentButton" class="icon-button" type="button" title="上一级" aria-label="上一级">&uarr;</button>
+        <input id="browserPathInput" type="text" aria-label="当前路径">
+        <button id="browserGoButton" class="button small" type="button">转到</button>
+      </div>
+      <div id="browserEntries" class="browser-entries"></div>
+      <div class="dialog-footer">
+        <span id="browserSelection" class="browser-selection"></span>
+        <button class="button" value="cancel" type="submit">取消</button>
+        <button id="chooseCurrentButton" class="button primary" type="button">选择当前目录</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="newProjectDialog" class="small-dialog">
+    <form id="newProjectForm" class="dialog-shell">
+      <div class="dialog-header">
+        <div><h2>新建标注项目</h2><p>创建配置和 labels 目录</p></div>
+        <button id="closeNewProjectButton" class="icon-button" type="button" aria-label="关闭" title="关闭">&times;</button>
+      </div>
+      <label class="field-label" for="newProjectPath">项目目录</label>
+      <input id="newProjectPath" type="text" value="/hdd/material/cc_training_materials_dataset" required>
+      <div class="dialog-footer">
+        <button id="cancelNewProjectButton" class="button" type="button">取消</button>
+        <button class="button primary" type="submit">创建项目</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dedupDialog" class="small-dialog">
+    <form id="dedupForm" class="dialog-shell">
+      <div class="dialog-header">
+        <div><h2>添加图片目录</h2><p>相似帧去重</p></div>
+        <button id="closeDedupButton" class="icon-button" type="button" aria-label="关闭" title="关闭">&times;</button>
+      </div>
+      <div id="dedupPath" class="dedup-path"></div>
+      <div class="range-heading dedup-range-heading">
+        <label for="dedupThreshold">相似度阈值</label>
+        <output id="dedupThresholdOutput">90%</output>
+      </div>
+      <input id="dedupThreshold" type="range" min="1" max="100" step="1" value="90">
+      <div id="dedupStats" class="dedup-stats" hidden>
+        <div><strong id="dedupTotalCount">0</strong><span>原始图片</span></div>
+        <div><strong id="dedupDeleteCount">0</strong><span>拟删除</span></div>
+        <div><strong id="dedupKeepCount">0</strong><span>保留图片</span></div>
+      </div>
+      <div id="dedupStatus" class="dedup-status">尚未扫描</div>
+      <div class="dialog-footer">
+        <button id="cancelDedupButton" class="button" type="button">取消</button>
+        <button id="directAddButton" class="button" type="button">直接添加（不扫描）</button>
+        <button id="stopDedupButton" class="button danger" type="button" hidden>停止扫描</button>
+        <button id="scanDedupButton" class="button primary" type="submit">开始扫描</button>
+        <button id="applyDedupButton" class="button danger" type="button" hidden>删除并添加</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="videoDialog" class="small-dialog">
+    <form id="videoForm" class="dialog-shell">
+      <div class="dialog-header">
+        <div><h2>添加视频</h2><p>先抽取 PNG，再进行相似帧去重</p></div>
+        <button id="closeVideoButton" class="icon-button" type="button" aria-label="关闭" title="关闭">&times;</button>
+      </div>
+      <div id="videoPath" class="dedup-path"></div>
+      <label class="field-label" for="videoInterval">抽帧间隔（毫秒）</label>
+      <input id="videoInterval" class="number-input" type="number" min="10" max="60000" step="10" value="250" required>
+      <p class="form-hint">默认 250 ms，即每秒约 4 帧。生成的 PNG 为无损压缩，完成后会打开相似帧去重。</p>
+      <div id="videoStatus" class="dedup-status">尚未开始</div>
+      <div class="dialog-footer">
+        <button id="cancelVideoButton" class="button" type="button">取消</button>
+        <button id="startVideoButton" class="button primary" type="submit">开始抽帧</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>

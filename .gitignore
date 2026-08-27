@@ -1,0 +1,31 @@
+# Runtime and generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.log
+*.pid
+server.log
+
+# Local environments and caches
+venv/
+env/
+home/
+tmp/
+pip-cache/
+.cache/
+
+# Datasets, labels, generated frames and training outputs
+*_dataset/
+dataset/
+runs/
+images/
+labels/
+*.pt
+*.onnx
+*.engine
+
+# Local editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
