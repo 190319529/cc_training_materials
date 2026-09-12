@@ -497,7 +497,11 @@ class DatasetState:
             json.dumps(self.metadata, ensure_ascii=False, indent=2) + "\n",
         )
 
-    def set_classes(self, values: list[dict[str, Any]]) -> dict[str, Any]:
+    def set_classes(
+        self,
+        values: list[dict[str, Any]],
+        class_id_map: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not isinstance(values, list) or not values:
             raise AppError("至少需要配置一个目标类别")
         parsed: dict[int, str] = {}
@@ -520,7 +524,8 @@ class DatasetState:
             previous_classes = dict(self.classes)
             previous_metadata = dict(self.metadata)
             next_classes = dict(sorted(parsed.items()))
-            mapping = self._class_id_mapping(previous_classes, next_classes)
+            explicit_mapping = self._parse_class_id_map(class_id_map, previous_classes, next_classes)
+            mapping = self._class_id_mapping(previous_classes, next_classes, explicit_mapping)
             label_changes = self._plan_class_label_migration(mapping)
             backups: list[tuple[Path, Path]] = []
             try:
@@ -549,6 +554,7 @@ class DatasetState:
     def _class_id_mapping(
         previous: dict[int, str],
         next_classes: dict[int, str],
+        explicit: dict[int, int] | None = None,
     ) -> dict[int, int]:
         """Match renamed/reordered classes without guessing across duplicate names."""
         next_by_name: dict[str, int] = {}
@@ -560,10 +566,39 @@ class DatasetState:
                 next_by_name[name] = class_id
         mapping: dict[int, int] = {}
         for old_id, old_name in previous.items():
+            if explicit and old_id in explicit:
+                mapping[old_id] = explicit[old_id]
+                continue
             if old_name in next_by_name and old_name not in duplicate_names:
                 mapping[old_id] = next_by_name[old_name]
             elif old_id in next_classes:
                 mapping[old_id] = old_id
+        return mapping
+
+    @staticmethod
+    def _parse_class_id_map(
+        value: dict[str, Any] | None,
+        previous: dict[int, str],
+        next_classes: dict[int, str],
+    ) -> dict[int, int]:
+        if value in (None, {}):
+            return {}
+        if not isinstance(value, dict):
+            raise AppError("类别编号映射格式无效")
+        mapping: dict[int, int] = {}
+        targets: set[int] = set()
+        for raw_old, raw_new in value.items():
+            try:
+                old_id = int(raw_old)
+                new_id = int(raw_new)
+            except (TypeError, ValueError) as exc:
+                raise AppError("类别编号映射格式无效") from exc
+            if old_id not in previous or new_id not in next_classes:
+                raise AppError("类别编号映射包含不存在的类别")
+            if old_id in mapping or new_id in targets:
+                raise AppError("类别编号映射不能重复")
+            mapping[old_id] = new_id
+            targets.add(new_id)
         return mapping
 
     def _plan_class_label_migration(
@@ -573,7 +608,12 @@ class DatasetState:
         """Validate and prepare all label rewrites before changing any file."""
         _, _, labels_dir = self.require_open()
         changes: list[tuple[Path, str]] = []
-        for label_path in sorted(labels_dir.rglob("*.txt")):
+        label_paths = {
+            self.label_path(name)
+            for name in self.all_image_names()
+            if self.label_path(name).is_file()
+        }
+        for label_path in sorted(label_paths):
             try:
                 lines = label_path.read_text(encoding="utf-8").splitlines()
             except OSError as exc:
@@ -2789,7 +2829,12 @@ class RequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/classes":
                 if JOBS.is_running():
                     raise AppError("后台任务运行期间不能修改类别", HTTPStatus.CONFLICT)
-                self._send_json(DATASET.set_classes(payload.get("classes")))
+                self._send_json(
+                    DATASET.set_classes(
+                        payload.get("classes"),
+                        payload.get("class_id_map"),
+                    )
+                )
             elif path == "/api/labels":
                 if JOBS.is_running():
                     raise AppError("后台任务运行期间不能保存标签", HTTPStatus.CONFLICT)

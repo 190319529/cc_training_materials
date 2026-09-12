@@ -1006,6 +1006,9 @@ function syncClassDefinitionsCache() {
 function appendClassEditorRow(item) {
   const row = document.createElement("div");
   row.className = "class-editor-row";
+  if (item.originalId !== null && item.originalId !== undefined) {
+    row.dataset.originalId = String(item.originalId);
+  }
 
   const idInput = document.createElement("input");
   idInput.className = "class-id-input";
@@ -1044,7 +1047,7 @@ function appendClassEditorRow(item) {
 
 function renderClassEditor() {
   elements.classEditor.replaceChildren();
-  for (const item of state.classes) appendClassEditorRow(item);
+  for (const item of state.classes) appendClassEditorRow({ ...item, originalId: item.id });
   syncClassDefinitionsCache();
   updateControlState();
 }
@@ -1054,7 +1057,7 @@ function addClassEditorRow() {
     .map((input) => Number(input.value))
     .filter((value) => Number.isInteger(value) && value >= 0);
   const nextId = ids.length ? Math.max(...ids) + 1 : 0;
-  appendClassEditorRow({ id: nextId, name: "新类别" });
+  appendClassEditorRow({ id: nextId, name: "新类别", originalId: null });
   syncClassDefinitionsCache();
   const rows = elements.classEditor.querySelectorAll(".class-editor-row");
   rows[rows.length - 1]?.querySelector(".class-name-input")?.select();
@@ -1099,7 +1102,16 @@ async function saveClasses() {
   try {
     const classes = parseClassDefinitions();
     const currentPath = state.currentPath;
-    const dataset = await api("/api/classes", { method: "POST", body: { classes } });
+    const classIdMap = {};
+    elements.classEditor.querySelectorAll(".class-editor-row").forEach((row) => {
+      const originalId = row.dataset.originalId;
+      const id = row.querySelector(".class-id-input")?.value.trim();
+      if (originalId !== undefined && id !== undefined) classIdMap[originalId] = Number(id);
+    });
+    const dataset = await api("/api/classes", {
+      method: "POST",
+      body: { classes, class_id_map: classIdMap },
+    });
     clearWeatherReview();
     applyDataset(dataset);
     if (currentPath) await loadImage(currentPath, true, false);
