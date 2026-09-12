@@ -104,7 +104,9 @@ const elements = {
   boxCount: $("#boxCount"),
   dirtyState: $("#dirtyState"),
   rightTabs: $("#rightTabs"),
+  classEditor: $("#classEditor"),
   classDefinitions: $("#classDefinitions"),
+  addClassButton: $("#addClassButton"),
   saveClassesButton: $("#saveClassesButton"),
   classPicker: $("#classPicker"),
   clearBoxesButton: $("#clearBoxesButton"),
@@ -354,6 +356,10 @@ function updateControlState() {
   });
   elements.imageSearch.disabled = !datasetOpen;
   elements.imageSort.disabled = !datasetOpen;
+  elements.addClassButton.disabled = !datasetOpen || running;
+  elements.classEditor.querySelectorAll("input, button").forEach((control) => {
+    control.disabled = !datasetOpen || running;
+  });
   elements.saveClassesButton.disabled = !datasetOpen || running;
   const hasHistoryPrevious = state.navigationCursor > 0;
   const hasHistoryNext = state.navigationCursor >= 0 && state.navigationCursor < state.navigationHistory.length - 1;
@@ -423,12 +429,13 @@ function renderDataset() {
 }
 
 function applyDataset(dataset) {
+  const previousClass = state.classes.find((item) => item.id === state.currentClass);
   state.dataset = dataset;
   state.classes = dataset.classes?.length ? dataset.classes : [{ id: 0, name: "目标" }];
-  if (!state.classes.some((item) => item.id === state.currentClass)) {
-    state.currentClass = state.classes[0].id;
-  }
-  elements.classDefinitions.value = state.classes.map((item) => `${item.id}:${item.name}`).join("\n");
+  const sameName = previousClass && state.classes.find((item) => item.name === previousClass.name);
+  const sameId = state.classes.find((item) => item.id === state.currentClass);
+  state.currentClass = sameName?.id ?? sameId?.id ?? state.classes[0].id;
+  renderClassEditor();
   renderDataset();
   renderClassControls();
 }
@@ -987,16 +994,92 @@ async function deleteCurrentImage() {
   }
 }
 
+function syncClassDefinitionsCache() {
+  const rows = Array.from(elements.classEditor.querySelectorAll(".class-editor-row"));
+  elements.classDefinitions.value = rows.map((row) => {
+    const id = row.querySelector(".class-id-input")?.value.trim() || "";
+    const name = row.querySelector(".class-name-input")?.value.trim() || "";
+    return `${id}:${name}`;
+  }).join("\n");
+}
+
+function appendClassEditorRow(item) {
+  const row = document.createElement("div");
+  row.className = "class-editor-row";
+
+  const idInput = document.createElement("input");
+  idInput.className = "class-id-input";
+  idInput.type = "number";
+  idInput.min = "0";
+  idInput.step = "1";
+  idInput.value = String(item.id);
+  idInput.setAttribute("aria-label", "类别编号");
+
+  const nameInput = document.createElement("input");
+  nameInput.className = "class-name-input";
+  nameInput.type = "text";
+  nameInput.value = item.name;
+  nameInput.placeholder = "例如：无人机";
+  nameInput.setAttribute("aria-label", "类别名称");
+
+  const removeButton = document.createElement("button");
+  removeButton.className = "icon-button class-remove-button";
+  removeButton.type = "button";
+  removeButton.title = "删除类别";
+  removeButton.setAttribute("aria-label", `删除类别 ${item.name}`);
+  removeButton.innerHTML = "&times;";
+  removeButton.addEventListener("click", () => {
+    row.remove();
+    Array.from(elements.classEditor.querySelectorAll(".class-id-input"))
+      .forEach((input, index) => { input.value = String(index); });
+    syncClassDefinitionsCache();
+    updateControlState();
+  });
+
+  idInput.addEventListener("input", syncClassDefinitionsCache);
+  nameInput.addEventListener("input", syncClassDefinitionsCache);
+  row.append(idInput, nameInput, removeButton);
+  elements.classEditor.append(row);
+}
+
+function renderClassEditor() {
+  elements.classEditor.replaceChildren();
+  for (const item of state.classes) appendClassEditorRow(item);
+  syncClassDefinitionsCache();
+  updateControlState();
+}
+
+function addClassEditorRow() {
+  const ids = Array.from(elements.classEditor.querySelectorAll(".class-id-input"))
+    .map((input) => Number(input.value))
+    .filter((value) => Number.isInteger(value) && value >= 0);
+  const nextId = ids.length ? Math.max(...ids) + 1 : 0;
+  appendClassEditorRow({ id: nextId, name: "新类别" });
+  syncClassDefinitionsCache();
+  const rows = elements.classEditor.querySelectorAll(".class-editor-row");
+  rows[rows.length - 1]?.querySelector(".class-name-input")?.select();
+  updateControlState();
+}
+
 function parseClassDefinitions() {
   const values = [];
   const seen = new Set();
-  for (const [index, rawLine] of elements.classDefinitions.value.split(/\r?\n/).entries()) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    const separator = line.indexOf(":");
-    if (separator < 1) throw new Error(`第 ${index + 1} 行应为 id:名称`);
-    const idText = line.slice(0, separator).trim();
-    const name = line.slice(separator + 1).trim();
+  const rows = Array.from(elements.classEditor.querySelectorAll(".class-editor-row"));
+  const definitions = rows.length
+    ? rows.map((row) => ({
+      idText: row.querySelector(".class-id-input")?.value.trim() || "",
+      name: row.querySelector(".class-name-input")?.value.trim() || "",
+    }))
+    : elements.classDefinitions.value.split(/\r?\n/).filter((line) => line.trim()).map((line) => {
+      const separator = line.indexOf(":");
+      return {
+        idText: separator >= 0 ? line.slice(0, separator).trim() : "",
+        name: separator >= 0 ? line.slice(separator + 1).trim() : "",
+      };
+    });
+  for (const [index, definition] of definitions.entries()) {
+    const idText = definition.idText;
+    const name = definition.name;
     const id = Number(idText);
     if (!Number.isInteger(id) || id < 0 || !name) throw new Error(`第 ${index + 1} 行无效`);
     if (seen.has(id)) throw new Error(`类别 ID ${id} 重复`);
@@ -1012,14 +1095,19 @@ function parseClassDefinitions() {
 }
 
 async function saveClasses() {
+  if (!canDiscardChanges()) return;
   try {
     const classes = parseClassDefinitions();
+    const currentPath = state.currentPath;
     const dataset = await api("/api/classes", { method: "POST", body: { classes } });
     clearWeatherReview();
     applyDataset(dataset);
-    renderBoxList();
-    drawCanvas();
-    showToast("类别配置已加载");
+    if (currentPath) await loadImage(currentPath, true, false);
+    else {
+      renderBoxList();
+      drawCanvas();
+    }
+    showToast("类别配置已保存");
   } catch (error) {
     showToast(error.message, "error", 5000);
   }
@@ -2302,6 +2390,7 @@ function bindEvents() {
     state.reviewed = elements.reviewedToggle.checked;
     setDirty(true);
   });
+  elements.addClassButton.addEventListener("click", addClassEditorRow);
   elements.saveClassesButton.addEventListener("click", saveClasses);
   elements.clearBoxesButton.addEventListener("click", clearBoxes);
 
@@ -2424,6 +2513,7 @@ function bindEvents() {
 
 async function initialize() {
   bindEvents();
+  renderClassEditor();
   renderClassControls();
   renderBoxList();
   setCanvasMode("draw");

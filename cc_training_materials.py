@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - handled by the API at runtime
 
 
 APP_NAME = "cc_training_materials"
-APP_VERSION = "2.10.0"
+APP_VERSION = "2.11.0"
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "cc_training_materials_web"
 DEDUP_SCRIPT = APP_DIR / "image_similarity_dedup.py"
@@ -517,10 +517,89 @@ class DatasetState:
 
         with self.lock:
             self.require_open()
-            self.classes = dict(sorted(parsed.items()))
-            self.metadata["classes"] = {str(key): value for key, value in self.classes.items()}
-            self._save_metadata_locked()
+            previous_classes = dict(self.classes)
+            previous_metadata = dict(self.metadata)
+            next_classes = dict(sorted(parsed.items()))
+            mapping = self._class_id_mapping(previous_classes, next_classes)
+            label_changes = self._plan_class_label_migration(mapping)
+            backups: list[tuple[Path, Path]] = []
+            try:
+                if label_changes:
+                    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                    migration_root = self.root / WORK_DIRNAME / "class_migrations" / stamp
+                    for label_path, content in label_changes:
+                        relative = label_path.relative_to(self.labels_dir)
+                        backup_path = migration_root / "labels" / relative
+                        backup_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(label_path, backup_path)
+                        backups.append((label_path, backup_path))
+                        atomic_write_text(label_path, content)
+                self.classes = next_classes
+                self.metadata["classes"] = {str(key): value for key, value in self.classes.items()}
+                self._save_metadata_locked()
+            except Exception:
+                for label_path, backup_path in backups:
+                    shutil.copy2(backup_path, label_path)
+                self.classes = previous_classes
+                self.metadata = previous_metadata
+                raise
         return self.summary()
+
+    @staticmethod
+    def _class_id_mapping(
+        previous: dict[int, str],
+        next_classes: dict[int, str],
+    ) -> dict[int, int]:
+        """Match renamed/reordered classes without guessing across duplicate names."""
+        next_by_name: dict[str, int] = {}
+        duplicate_names: set[str] = set()
+        for class_id, name in next_classes.items():
+            if name in next_by_name:
+                duplicate_names.add(name)
+            else:
+                next_by_name[name] = class_id
+        mapping: dict[int, int] = {}
+        for old_id, old_name in previous.items():
+            if old_name in next_by_name and old_name not in duplicate_names:
+                mapping[old_id] = next_by_name[old_name]
+            elif old_id in next_classes:
+                mapping[old_id] = old_id
+        return mapping
+
+    def _plan_class_label_migration(
+        self,
+        mapping: dict[int, int],
+    ) -> list[tuple[Path, str]]:
+        """Validate and prepare all label rewrites before changing any file."""
+        _, _, labels_dir = self.require_open()
+        changes: list[tuple[Path, str]] = []
+        for label_path in sorted(labels_dir.rglob("*.txt")):
+            try:
+                lines = label_path.read_text(encoding="utf-8").splitlines()
+            except OSError as exc:
+                raise AppError(f"标签文件读取失败：{label_path.name}: {exc}") from exc
+            rewritten: list[str] = []
+            changed = False
+            for line_number, line in enumerate(lines, start=1):
+                if not line.strip():
+                    rewritten.append("")
+                    continue
+                parts = line.split()
+                try:
+                    old_id = int(parts[0])
+                except (IndexError, ValueError) as exc:
+                    raise AppError(f"标签文件 {label_path.name} 第 {line_number} 行类别编号无效") from exc
+                if old_id not in mapping:
+                    raise AppError(
+                        f"类别 {old_id} 已被标签 {label_path.name} 使用，不能直接删除；"
+                        "请先修改或删除这些标注框"
+                    )
+                new_id = mapping[old_id]
+                rewritten.append(" ".join([str(new_id), *parts[1:]]))
+                changed = changed or new_id != old_id
+            if changed:
+                changes.append((label_path, "\n".join(rewritten) + ("\n" if rewritten else "")))
+        return changes
 
     def summary(self) -> dict[str, Any]:
         with self.lock:

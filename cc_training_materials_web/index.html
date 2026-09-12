@@ -128,9 +128,18 @@
         <div class="section-heading">
           <h2>设置目标类别</h2>
         </div>
-        <label class="field-label" for="classDefinitions">类别定义</label>
-        <textarea id="classDefinitions" rows="5" spellcheck="false">0:目标</textarea>
-        <button id="saveClassesButton" class="button full-width" type="button" disabled>加载类别配置</button>
+        <div class="class-editor-heading">
+          <span>编号</span>
+          <span>类别名称</span>
+          <span class="sr-only">操作</span>
+        </div>
+        <div id="classEditor" class="class-editor"></div>
+        <div class="class-editor-footer">
+          <button id="addClassButton" class="button small" type="button" disabled>+ 添加类别</button>
+          <span class="class-editor-hint">编号需从 0 开始连续排列</span>
+        </div>
+        <textarea id="classDefinitions" class="class-definitions-cache" rows="1" hidden spellcheck="false"></textarea>
+        <button id="saveClassesButton" class="button full-width" type="button" disabled>保存类别配置</button>
 
         <div class="subsection-heading">
           <h3>当前绘制类别</h3>
