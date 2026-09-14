@@ -796,11 +796,13 @@ class DatasetState:
         is_weather = metadata.get("origin") == "weather"
         reviewed = bool(metadata.get("reviewed", False))
         pending = bool(has_label and source == "prediction" and not reviewed)
+        class_ids = sorted({box.cls_id for box in boxes}) if has_label else []
         return {
             "path": relative_name,
             "name": PurePosixPath(relative_name).name,
             "has_label": has_label,
             "box_count": box_count,
+            "class_ids": class_ids,
             "source": source,
             "is_weather": is_weather,
             "weather_type": metadata.get("weather_type") if is_weather else None,
@@ -818,6 +820,7 @@ class DatasetState:
         sort_name: str,
         offset: int,
         limit: int,
+        class_id: int | None = None,
     ) -> dict[str, Any]:
         names = self.all_image_names()
         search_value = search.strip().casefold()
@@ -840,6 +843,8 @@ class DatasetState:
             stats["weather"] += int(entry["is_weather"])
             stats["invalid"] += int(entry["invalid"])
             if search_value and search_value not in name.casefold():
+                continue
+            if class_id is not None and class_id not in entry["class_ids"]:
                 continue
             if filter_name == "unlabeled" and entry["has_label"]:
                 continue
@@ -2819,7 +2824,16 @@ class RequestHandler(BaseHTTPRequestHandler):
                 offset = self._query_int(query, "offset", 0, 0, 10_000_000)
                 limit = self._query_int(query, "limit", 500, 1, 2000)
                 search = query.get("search", [""])[0]
-                self._send_json(DATASET.list_images(filter_name, search, sort_name, offset, limit))
+                raw_class_id = query.get("class_id", [""])[0].strip()
+                class_id = None
+                if raw_class_id:
+                    try:
+                        class_id = int(raw_class_id)
+                    except ValueError as exc:
+                        raise AppError("类别筛选无效") from exc
+                    if class_id not in DATASET.classes:
+                        raise AppError("类别筛选不存在")
+                self._send_json(DATASET.list_images(filter_name, search, sort_name, offset, limit, class_id))
             elif path == "/api/image":
                 self._serve_image(query.get("path", [""])[0])
             elif path == "/api/labels":

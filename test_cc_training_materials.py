@@ -46,6 +46,18 @@ class DatasetStateTests(unittest.TestCase):
         self.assertEqual(names, [f"{first}/same-name.jpg", f"{second}/same-name.jpg"])
         self.assertNotEqual(self.dataset.label_path(names[0]), self.dataset.label_path(names[1]))
 
+    def test_image_list_can_filter_by_class(self):
+        self.dataset.set_classes([{"id": 0, "name": "目标"}, {"id": 1, "name": "鸟"}])
+        source_id = self.dataset.add_source(str(self.source_a))["added"]["id"]
+        self.dataset.write_boxes(
+            f"{source_id}/same-name.jpg",
+            [{"cls_id": 1, "xc": 0.5, "yc": 0.5, "w": 0.4, "h": 0.3}],
+            "manual",
+            True,
+        )
+        self.assertEqual(self.dataset.list_images("all", "", "name", 0, 20, 1)["filtered"], 1)
+        self.assertEqual(self.dataset.list_images("all", "", "name", 0, 20, 0)["filtered"], 0)
+
     def test_manual_and_prediction_statuses(self):
         source_id = self.dataset.add_source(str(self.source_a))["added"]["id"]
         name = f"{source_id}/same-name.jpg"

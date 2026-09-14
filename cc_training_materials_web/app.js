@@ -32,6 +32,7 @@ const state = {
   filteredTotal: 0,
   stats: { total: 0, labeled: 0, unlabeled: 0, pending: 0, reviewed: 0, weather: 0, invalid: 0 },
   filter: "pending",
+  classFilter: "",
   search: "",
   sort: "boxes_desc",
   pageLimit: 500,
@@ -80,6 +81,7 @@ const elements = {
   weatherCount: $("#weatherCount"),
   imageSearch: $("#imageSearch"),
   imageSort: $("#imageSort"),
+  imageClassFilter: $("#imageClassFilter"),
   imageFilters: $("#imageFilters"),
   imageList: $("#imageList"),
   loadMoreButton: $("#loadMoreButton"),
@@ -359,6 +361,7 @@ function updateControlState() {
   });
   elements.imageSearch.disabled = !datasetOpen;
   elements.imageSort.disabled = !datasetOpen;
+  elements.imageClassFilter.disabled = !datasetOpen;
   elements.addClassButton.disabled = !datasetOpen || running;
   elements.classEditor.querySelectorAll("input, button").forEach((control) => {
     control.disabled = !datasetOpen || running;
@@ -438,12 +441,30 @@ function applyDataset(dataset) {
   const previousClass = state.classes.find((item) => item.id === state.currentClass);
   state.dataset = dataset;
   state.classes = dataset.classes?.length ? dataset.classes : [{ id: 0, name: "目标" }];
+  if (!state.classes.some((item) => String(item.id) === state.classFilter)) state.classFilter = "";
   const sameName = previousClass && state.classes.find((item) => item.name === previousClass.name);
   const sameId = state.classes.find((item) => item.id === state.currentClass);
   state.currentClass = sameName?.id ?? sameId?.id ?? state.classes[0].id;
   renderClassEditor();
+  renderImageClassFilter();
   renderDataset();
   renderClassControls();
+}
+
+function renderImageClassFilter() {
+  const selected = state.classFilter;
+  elements.imageClassFilter.replaceChildren();
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = "全部类别";
+  elements.imageClassFilter.append(all);
+  for (const item of state.classes) {
+    const option = document.createElement("option");
+    option.value = String(item.id);
+    option.textContent = `${item.id}: ${item.name}`;
+    elements.imageClassFilter.append(option);
+  }
+  elements.imageClassFilter.value = selected;
 }
 
 function setImageFilter(filter) {
@@ -736,6 +757,7 @@ async function loadImages(reset = true) {
       filter: state.filter,
       search: state.search,
       sort: state.sort,
+      class_id: state.classFilter,
       offset: String(offset),
       limit: String(state.pageLimit),
     });
@@ -2425,6 +2447,13 @@ function bindEvents() {
   elements.imageSort.addEventListener("change", () => {
     state.sort = elements.imageSort.value;
     loadImages(true);
+  });
+  elements.imageClassFilter.addEventListener("change", async () => {
+    if (!canDiscardChanges()) return;
+    state.classFilter = elements.imageClassFilter.value;
+    resetCurrentImage();
+    await loadImages(true);
+    await openFirstListedImage();
   });
   elements.loadMoreButton.addEventListener("click", () => loadImages(false));
   elements.imageList.addEventListener("scroll", () => {
