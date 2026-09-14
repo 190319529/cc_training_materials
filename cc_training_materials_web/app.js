@@ -703,6 +703,7 @@ async function removeImageSource(source) {
 
 function resetCurrentImage() {
   state.loadToken += 1;
+  elements.loadingOverlay.hidden = true;
   state.currentPath = null;
   state.currentIndex = -1;
   state.image = null;
