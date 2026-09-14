@@ -32,7 +32,7 @@ except ImportError:  # pragma: no cover - handled by the API at runtime
 
 
 APP_NAME = "cc_training_materials"
-APP_VERSION = "2.11.0"
+APP_VERSION = "2.12.0"
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "cc_training_materials_web"
 DEDUP_SCRIPT = APP_DIR / "image_similarity_dedup.py"
@@ -277,7 +277,14 @@ class DatasetState:
                     path = root / path
                 path = path.resolve()
                 if path.is_dir() and not any(existing["id"] == source_id for existing in sources):
-                    sources.append({"id": source_id, "path": path})
+                    raw_labels_path = item.get("labels_path")
+                    labels_path = None
+                    if isinstance(raw_labels_path, str) and raw_labels_path.strip():
+                        labels_path = Path(raw_labels_path).expanduser()
+                        if not labels_path.is_absolute():
+                            labels_path = root / labels_path
+                        labels_path = labels_path.resolve()
+                    sources.append({"id": source_id, "path": path, "labels_path": labels_path})
         if sources:
             return sources
 
@@ -296,7 +303,15 @@ class DatasetState:
             stored_path = path.relative_to(root).as_posix()
         except ValueError:
             stored_path = str(path)
-        return {"id": str(source["id"]), "path": stored_path}
+        result = {"id": str(source["id"]), "path": stored_path}
+        labels_path = source.get("labels_path")
+        if labels_path:
+            labels = Path(labels_path)
+            try:
+                result["labels_path"] = labels.relative_to(root).as_posix()
+            except ValueError:
+                result["labels_path"] = str(labels)
+        return result
 
     @staticmethod
     def _source_alias(path: Path, used: set[str]) -> str:
@@ -308,13 +323,18 @@ class DatasetState:
             number += 1
         return candidate
 
-    def add_source(self, raw_path: str) -> dict[str, Any]:
+    def add_source(self, raw_path: str, raw_labels_path: str | None = None) -> dict[str, Any]:
         root, _, _ = self.require_open()
         if not raw_path or not isinstance(raw_path, str):
             raise AppError("图片目录不能为空")
         path = Path(raw_path).expanduser().resolve()
         if not path.is_dir():
             raise AppError("图片目录不存在")
+        labels_path = None
+        if isinstance(raw_labels_path, str) and raw_labels_path.strip():
+            labels_path = Path(raw_labels_path).expanduser().resolve()
+            if not labels_path.is_dir():
+                raise AppError("外部标注目录不存在")
         image_count = sum(
             1 for candidate in path.rglob("*") if candidate.is_file() and candidate.suffix.lower() in IMAGE_EXTENSIONS
         )
@@ -328,11 +348,16 @@ class DatasetState:
                 if is_relative_to(existing, path) or is_relative_to(path, existing):
                     raise AppError("该图片目录与已添加目录重叠，不能重复添加")
             source_id = self._source_alias(path, {str(item["id"]) for item in self.sources})
-            self.sources.append({"id": source_id, "path": path})
+            self.sources.append({"id": source_id, "path": path, "labels_path": labels_path})
             self.metadata["sources"] = [self._source_for_storage(root, item) for item in self.sources]
             self._save_metadata_locked()
         result = self.summary()
-        result["added"] = {"id": source_id, "path": str(path), "image_count": image_count}
+        result["added"] = {
+            "id": source_id,
+            "path": str(path),
+            "labels_path": str(labels_path) if labels_path else None,
+            "image_count": image_count,
+        }
         return result
 
     def remove_source(self, source_id: str, raw_path: str) -> dict[str, Any]:
@@ -378,7 +403,7 @@ class DatasetState:
         )
         if existing is None:
             source_id = self._source_alias(preferred, {str(source["id"]) for source in self.sources})
-            self.sources.append({"id": source_id, "path": preferred})
+            self.sources.append({"id": source_id, "path": preferred, "labels_path": None})
             self.metadata["sources"] = [self._source_for_storage(root, source) for source in self.sources]
         return preferred
 
@@ -648,7 +673,12 @@ class DatasetState:
                 "root": str(self.root) if self.root else None,
                 "classes": [{"id": key, "name": value} for key, value in self.classes.items()],
                 "sources": [
-                    {"id": str(item["id"]), "path": str(item["path"])} for item in self.sources
+                    {
+                        "id": str(item["id"]),
+                        "path": str(item["path"]),
+                        "labels_path": str(item["labels_path"]) if item.get("labels_path") else None,
+                    }
+                    for item in self.sources
                 ],
             }
 
@@ -682,12 +712,26 @@ class DatasetState:
         raise AppError("图片不存在", HTTPStatus.NOT_FOUND)
 
     def label_path(self, relative_name: str) -> Path:
-        _, _, labels_dir = self.require_open()
-        self.image_path(relative_name)
-        pure = PurePosixPath(relative_name)
-        relative = Path(*pure.parts).with_suffix(".txt")
-        candidate = (labels_dir / relative).resolve()
-        if not is_relative_to(candidate, labels_dir):
+        _, sources, labels_dir = self.require_open()
+        image_path = self.image_path(relative_name)
+        source_root = None
+        source_labels = labels_dir
+        for source in sources:
+            candidate_root = Path(source["path"]).resolve()
+            if is_relative_to(image_path, candidate_root):
+                source_root = candidate_root
+                raw_labels = source.get("labels_path")
+                if raw_labels:
+                    source_labels = Path(raw_labels).resolve()
+                break
+        if source_root is None:
+            raise AppError("图片来源不存在")
+        if source.get("labels_path"):
+            relative = image_path.relative_to(source_root).with_suffix(".txt")
+        else:
+            relative = Path(*PurePosixPath(relative_name).parts).with_suffix(".txt")
+        candidate = (source_labels / relative).resolve()
+        if not is_relative_to(candidate, source_labels):
             raise AppError("标签路径无效")
         return candidate
 
@@ -883,8 +927,7 @@ class DatasetState:
             boxes = [Box.from_payload(item, known_classes) for item in raw_boxes]
             label_path = self.label_path(relative_name)
             if backup_dir is not None and label_path.exists():
-                _, _, labels_dir = self.require_open()
-                relative_label = label_path.relative_to(labels_dir)
+                relative_label = Path(*PurePosixPath(relative_name).parts).with_suffix(".txt")
                 backup_path = backup_dir / relative_label
                 backup_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(label_path, backup_path)
@@ -2635,7 +2678,10 @@ class SourceDedupService:
                 raise AppError("删除清单不存在，请重新扫描", HTTPStatus.CONFLICT)
             self._run("apply", path, threshold)
             apply_summary = self._read_json(apply_summary_path, "删除结果")
-            dataset = self.dataset.add_source(str(path))
+            dataset = self.dataset.add_source(
+                str(path),
+                payload.get("labels_path") if isinstance(payload.get("labels_path"), str) else None,
+            )
             return {"dataset": dataset, "scan": summary, "apply": apply_summary}
         finally:
             self.lock.release()
@@ -2808,7 +2854,13 @@ class RequestHandler(BaseHTTPRequestHandler):
                     raise AppError("后台任务运行期间不能添加图片目录", HTTPStatus.CONFLICT)
                 if SOURCE_DEDUP.is_running():
                     raise AppError("已有图片目录正在扫描或去重", HTTPStatus.CONFLICT)
-                self._send_json(DATASET.add_source(str(payload.get("path", ""))), HTTPStatus.CREATED)
+                self._send_json(
+                    DATASET.add_source(
+                        str(payload.get("path", "")),
+                        payload.get("labels_path") if isinstance(payload.get("labels_path"), str) else None,
+                    ),
+                    HTTPStatus.CREATED,
+                )
             elif path == "/api/sources/dedup/scan":
                 self._send_json(SOURCE_DEDUP.scan(payload))
             elif path == "/api/sources/dedup/cancel":

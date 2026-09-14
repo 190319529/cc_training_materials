@@ -2452,6 +2452,42 @@ body {
   text-align: right;
 }
 
+.external-labels-row {
+  display: grid;
+  gap: 6px;
+  margin: 11px 0 3px;
+  padding: 9px 10px;
+  border: 1px solid #d5e1e2;
+  border-radius: 5px;
+  background: #f6fafa;
+}
+
+.external-labels-row .field-label {
+  margin: 0 0 5px;
+}
+
+.dedup-path.secondary {
+  max-height: 40px;
+  margin-bottom: 0;
+  padding: 6px 7px;
+  border-color: #dbe5e6;
+  border: 1px solid #dbe5e6;
+  border-radius: 4px;
+  background: #fff;
+  color: #6e8185;
+}
+
+.external-labels-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.external-labels-actions .button {
+  min-height: 28px;
+  font-size: 10px;
+}
+
 .target-preview-section {
   margin-top: 13px;
   padding-top: 11px;

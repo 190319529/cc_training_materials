@@ -364,6 +364,16 @@
         <button id="closeDedupButton" class="icon-button" type="button" aria-label="关闭" title="关闭">&times;</button>
       </div>
       <div id="dedupPath" class="dedup-path"></div>
+      <div class="external-labels-row">
+        <div>
+          <label class="field-label" for="dedupLabelsPath">外部标注目录（可选）</label>
+          <div id="dedupLabelsPath" class="dedup-path secondary">未设置，将使用项目 labels 目录</div>
+        </div>
+        <div class="external-labels-actions">
+          <button id="chooseLabelsDirectoryButton" class="button small" type="button">选择标注目录</button>
+          <button id="clearLabelsDirectoryButton" class="button small" type="button">使用项目 labels</button>
+        </div>
+      </div>
       <div class="range-heading dedup-range-heading">
         <label for="dedupThreshold">相似度阈值</label>
         <output id="dedupThresholdOutput">90%</output>

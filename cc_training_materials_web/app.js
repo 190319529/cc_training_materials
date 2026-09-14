@@ -52,7 +52,7 @@ const state = {
   navigationCursor: -1,
   imageListScrollTop: 0,
   browser: { kind: "directory", purpose: "dataset", current: "/hdd", selected: null, choose: null },
-  dedup: { path: "", threshold: 90, summary: null, busy: false },
+  dedup: { path: "", labelsPath: "", threshold: 90, summary: null, busy: false },
   video: { path: "" },
   job: null,
   jobTimer: null,
@@ -182,6 +182,9 @@ const elements = {
   dedupDialog: $("#dedupDialog"),
   dedupForm: $("#dedupForm"),
   dedupPath: $("#dedupPath"),
+  dedupLabelsPath: $("#dedupLabelsPath"),
+  chooseLabelsDirectoryButton: $("#chooseLabelsDirectoryButton"),
+  clearLabelsDirectoryButton: $("#clearLabelsDirectoryButton"),
   dedupThreshold: $("#dedupThreshold"),
   dedupThresholdOutput: $("#dedupThresholdOutput"),
   dedupStats: $("#dedupStats"),
@@ -409,12 +412,15 @@ function renderDataset() {
   for (const source of sources) {
     const row = document.createElement("div");
     row.className = "source-item";
-    row.title = source.path;
+    row.title = source.labels_path
+      ? `${source.path}\n标注：${source.labels_path}`
+      : source.path;
     const mark = document.createElement("span");
     mark.className = "source-mark";
     const text = document.createElement("span");
     text.className = "source-path";
-    text.textContent = source.id ? `${source.id}  ${source.path}` : source.path;
+    const labelHint = source.labels_path ? " · 外部标签" : "";
+    text.textContent = `${source.id ? `${source.id}  ` : ""}${source.path}${labelHint}`;
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "source-remove-button";
@@ -489,9 +495,11 @@ function sourceBrowserStartPath() {
 }
 
 function prepareImageSource(path) {
-  state.dedup = { path, threshold: 90, summary: null, busy: false };
+  state.dedup = { path, labelsPath: "", threshold: 90, summary: null, busy: false };
   elements.dedupPath.textContent = path;
   elements.dedupPath.title = path;
+  elements.dedupLabelsPath.textContent = "未设置，将使用项目 labels 目录";
+  elements.dedupLabelsPath.title = "";
   elements.dedupThreshold.value = "90";
   elements.dedupThresholdOutput.value = "90%";
   elements.dedupStats.hidden = true;
@@ -501,6 +509,13 @@ function prepareImageSource(path) {
   elements.stopDedupButton.hidden = true;
   elements.directAddButton.hidden = false;
   elements.dedupDialog.showModal();
+}
+
+function prepareExternalLabelsSource(path) {
+  if (!state.dedup.path) return;
+  state.dedup.labelsPath = path;
+  elements.dedupLabelsPath.textContent = path;
+  elements.dedupLabelsPath.title = path;
 }
 
 function prepareVideo(path) {
@@ -548,6 +563,8 @@ function setDedupBusy(busy, message = "", stoppable = busy) {
   elements.directAddButton.disabled = busy;
   elements.stopDedupButton.hidden = !stoppable;
   elements.stopDedupButton.disabled = !stoppable;
+  elements.chooseLabelsDirectoryButton.disabled = busy;
+  elements.clearLabelsDirectoryButton.disabled = busy;
   elements.closeDedupButton.disabled = busy;
   elements.cancelDedupButton.disabled = busy;
   if (message) elements.dedupStatus.textContent = message;
@@ -612,7 +629,7 @@ async function addImageSourceDirect() {
   try {
     const result = await api("/api/sources", {
       method: "POST",
-      body: { path: state.dedup.path },
+      body: { path: state.dedup.path, labels_path: state.dedup.labelsPath },
     });
     clearWeatherReview();
     applyDataset(result);
@@ -640,7 +657,11 @@ async function applyImageSourceDedup() {
   try {
     const result = await api("/api/sources/dedup/apply", {
       method: "POST",
-      body: { path: state.dedup.path, threshold: state.dedup.threshold },
+      body: {
+        path: state.dedup.path,
+        labels_path: state.dedup.labelsPath,
+        threshold: state.dedup.threshold,
+      },
     });
     clearWeatherReview();
     applyDataset(result.dataset);
@@ -2234,6 +2255,8 @@ async function openBrowser(kind, purpose, choose, startPath = null) {
       ? "选择视频文件"
     : purpose === "source"
       ? "选择图片目录"
+      : purpose === "labels-source"
+        ? "选择外部标注目录"
       : purpose === "export"
         ? "选择导出位置"
         : "选择数据集根目录";
@@ -2243,6 +2266,8 @@ async function openBrowser(kind, purpose, choose, startPath = null) {
       ? "支持 .pt 文件"
       : kind === "video"
         ? "支持 MP4、AVI、MOV、MKV、WEBM 等视频"
+        : purpose === "labels-source"
+          ? "目录结构应与图片目录相同，标签文件为同名 .txt"
       : "本机文件系统";
   elements.chooseCurrentButton.textContent = kind === "model"
     ? "选择模型"
@@ -2352,6 +2377,17 @@ function bindEvents() {
   elements.stopDedupButton.addEventListener("click", stopImageSourceScan);
   elements.dedupThreshold.addEventListener("input", invalidateDedupScan);
   elements.applyDedupButton.addEventListener("click", applyImageSourceDedup);
+  elements.chooseLabelsDirectoryButton.addEventListener("click", () => openBrowser(
+    "directory",
+    "labels-source",
+    prepareExternalLabelsSource,
+    state.dedup.labelsPath || sourceBrowserStartPath(),
+  ));
+  elements.clearLabelsDirectoryButton.addEventListener("click", () => {
+    state.dedup.labelsPath = "";
+    elements.dedupLabelsPath.textContent = "未设置，将使用项目 labels 目录";
+    elements.dedupLabelsPath.title = "";
+  });
   elements.closeDedupButton.addEventListener("click", () => elements.dedupDialog.close());
   elements.cancelDedupButton.addEventListener("click", () => elements.dedupDialog.close());
   elements.dedupDialog.addEventListener("cancel", (event) => {
