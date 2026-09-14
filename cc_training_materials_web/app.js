@@ -2254,7 +2254,7 @@ async function openBrowser(kind, purpose, choose, startPath = null) {
     : kind === "video"
       ? "选择视频文件"
     : purpose === "source"
-      ? "选择图片目录"
+      ? "选择外部图片目录"
       : purpose === "labels-source"
         ? "选择外部标注目录"
       : purpose === "export"
