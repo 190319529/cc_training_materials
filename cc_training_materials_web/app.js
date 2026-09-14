@@ -464,6 +464,10 @@ async function openFirstListedImage() {
 async function openDefaultPendingImage() {
   setImageFilter("pending");
   await loadImages(true);
+  if (state.filteredTotal === 0 && state.stats.total > 0) {
+    setImageFilter("all");
+    await loadImages(true);
+  }
   await openFirstListedImage();
 }
 
